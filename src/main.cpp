@@ -2,11 +2,11 @@
 #include <exception>
 #include <string>
 
-// Inclui os cabeçalhos do NewtonGrid
-#include "Grid.hpp"
-#include "FieldData.hpp"
-#include "GravitationalField.hpp"
-#include "VTIWriter.hpp"
+// Inclui os cabeçalhos do NewtonGrid com caminhos relativos
+#include "data/Grid.hpp"
+#include "data/FieldData.hpp"
+#include "physics/GravitationalField.hpp"
+#include "io/VTIWriter.hpp"
 
 using namespace NewtonGrid;
 
@@ -36,8 +36,16 @@ int main() {
         const double oy = -(ny * dy) / 2.0;  // -2.5
         const double oz = -(nz * dz) / 2.0;  // -2.5
         
-        // Cria o grid 3D
-        Grid grid(nx, ny, dx, dy, ox, oy, dz, oz);
+        // Cria o grid 3D usando o construtor principal (dimensions, spacing, origin)
+        Grid grid({nx, ny, nz}, {dx, dy, dz}, {ox, oy, oz});
+        
+        // Sanidade rápida: verifique que total_points bate com nx*ny*nz
+        const std::size_t expected_points = nx * ny * nz;
+        if (grid.total_points() != expected_points) {
+            std::cerr << "ERRO: grid.total_points() != nx*ny*nz ("
+                      << grid.total_points() << " != " << expected_points << ")\n";
+            return 1;
+        }
         
         std::cout << "   • Dimensões: " << nx << " × " << ny << " × " << nz << " pontos\n";
         std::cout << "   • Espaçamento: " << dx << " × " << dy << " × " << dz << "\n";
@@ -175,7 +183,7 @@ int main() {
         std::cout << "   • O campo escalar 'Magnitude' contém a norma do campo\n\n";
         
         // =====================================================================
-        // 7. VALIDAÇÃO RÁPIDA
+        // 7. VALIDAÇÃO RÁPIDA (CORRIGIDA)
         // =====================================================================
         std::cout << "7. Validação rápida dos resultados:\n";
         
@@ -192,33 +200,88 @@ int main() {
             std::cout << "       Magnitude: " << mag << "\n";
         }
         
-        // Verifica propriedades de simetria
-        std::cout << "   • Verificando simetrias (pontos simétricos em relação à origem):\n";
+        // Verifica propriedades de simetria - CORRIGIDO
+        std::cout << "   • Verificando simetrias (pontos simétricos em relação ao centro do grid):\n";
         
-        // Ponto no centro
-        const auto center_indices = grid.physical_to_discrete(0.0, 0.0, 0.0);
-        const std::size_t center_idx = grid.linear_index(
-            center_indices[0], center_indices[1], center_indices[2]);
+        // Pega o centro físico do grid
+        const auto center_coords = grid.center();
+        std::cout << "     Centro físico do grid: (" 
+                  << center_coords[0] << ", " << center_coords[1] << ", " << center_coords[2] << ")\n";
         
-        // Ponto simétrico no eixo X
-        const auto sym_indices = grid.physical_to_discrete(1.0, 0.0, 0.0);
-        const std::size_t sym_idx = grid.linear_index(
-            sym_indices[0], sym_indices[1], sym_indices[2]);
-        
-        if (center_idx < field.size() && sym_idx < field.size()) {
-            const auto center_vec = field.get_vector(center_idx);
-            const auto sym_vec = field.get_vector(sym_idx);
+        // Tenta acessar o ponto do centro se estiver dentro dos limites
+        try {
+            const auto center_indices = grid.physical_to_discrete(
+                center_coords[0], center_coords[1], center_coords[2]);
             
-            std::cout << "     Centro (0,0,0): campo ≈ (" 
-                      << center_vec[0] << ", " << center_vec[1] << ", " << center_vec[2] << ")\n";
-            std::cout << "     Ponto (1,0,0): campo ≈ (" 
-                      << sym_vec[0] << ", " << sym_vec[1] << ", " << sym_vec[2] << ")\n";
-            
-            // Em um sistema simétrico, o campo no centro deve ser próximo de zero
-            const double center_mag = field.magnitude(center_idx);
-            if (center_mag < 1e-3) {
-                std::cout << "     ✓ Campo no centro é pequeno (simetria preservada)\n";
+            // Verifica se os índices estão dentro dos limites
+            if (center_indices[0] < nx && center_indices[1] < ny && center_indices[2] < nz) {
+                const std::size_t center_idx = grid.linear_index(
+                    center_indices[0], center_indices[1], center_indices[2]);
+                
+                if (center_idx < field.size()) {
+                    const auto center_vec = field.get_vector(center_idx);
+                    const double center_mag = field.magnitude(center_idx);
+                    
+                    std::cout << "     Campo no centro do grid: (" 
+                              << center_vec[0] << ", " << center_vec[1] << ", " << center_vec[2] << ")\n";
+                    std::cout << "     Magnitude no centro: " << center_mag << "\n";
+                    
+                    if (center_mag < 1e-3) {
+                        std::cout << "     ✓ Campo no centro é pequeno (simetria preservada)\n";
+                    } else {
+                        std::cout << "     ⚠️  Campo no centro não é zero (pode ser esperado devido às massas)\n";
+                    }
+                }
             }
+        } catch (const std::exception& e) {
+            std::cout << "     ⚠️  Não foi possível acessar o centro do grid: " << e.what() << "\n";
+        }
+        
+        // Mostra um ponto simétrico em relação ao centro (metade do domínio em X)
+        try {
+            const double sym_x = center_coords[0] + (nx * dx) / 4.0;  // 1/4 do domínio a partir do centro
+            const auto sym_indices = grid.physical_to_discrete(sym_x, center_coords[1], center_coords[2]);
+            
+            if (sym_indices[0] < nx && sym_indices[1] < ny && sym_indices[2] < nz) {
+                const std::size_t sym_idx = grid.linear_index(
+                    sym_indices[0], sym_indices[1], sym_indices[2]);
+                
+                if (sym_idx < field.size()) {
+                    const auto sym_vec = field.get_vector(sym_idx);
+                    const auto sym_coords = grid.linear_to_physical(sym_idx);
+                    
+                    std::cout << "     Ponto simétrico @ (" 
+                              << sym_coords[0] << ", " << sym_coords[1] << ", " << sym_coords[2] << "):\n";
+                    std::cout << "       Vetor: (" << sym_vec[0] << ", " << sym_vec[1] << ", " << sym_vec[2] << ")\n";
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cout << "     ⚠️  Não foi possível acessar ponto simétrico: " << e.what() << "\n";
+        }
+        
+        // Verificação adicional: ponto próximo às massas
+        std::cout << "   • Campo próximo às massas (ponto (-1.5, 0, 0)):\n";
+        try {
+            const auto mass_point_indices = grid.physical_to_discrete(-1.5, 0.0, 0.0);
+            if (mass_point_indices[0] < nx && mass_point_indices[1] < ny && mass_point_indices[2] < nz) {
+                const std::size_t mass_idx = grid.linear_index(
+                    mass_point_indices[0], mass_point_indices[1], mass_point_indices[2]);
+                
+                if (mass_idx < field.size()) {
+                    const auto mass_vec = field.get_vector(mass_idx);
+                    const double mass_mag = field.magnitude(mass_idx);
+                    
+                    std::cout << "     Campo @ (-1.5, 0, 0): (" 
+                              << mass_vec[0] << ", " << mass_vec[1] << ", " << mass_vec[2] << ")\n";
+                    std::cout << "     Magnitude: " << mass_mag << "\n";
+                    
+                    if (mass_mag > max_mag * 0.9) {
+                        std::cout << "     ✓ Campo forte próximo à massa (esperado)\n";
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cout << "     ⚠️  Não foi possível acessar ponto próximo à massa: " << e.what() << "\n";
         }
         
         std::cout << "\n";

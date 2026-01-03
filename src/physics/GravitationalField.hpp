@@ -1,8 +1,8 @@
 #ifndef NEWTONGRID_GRAVITATIONALFIELD_HPP
 #define NEWTONGRID_GRAVITATIONALFIELD_HPP
 
-#include "Grid.hpp"
-#include "FieldData.hpp"
+#include "../data/Grid.hpp"
+#include "../data/FieldData.hpp"
 #include <vector>
 #include <array>
 #include <cmath>

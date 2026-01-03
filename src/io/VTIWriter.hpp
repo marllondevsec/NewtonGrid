@@ -1,8 +1,9 @@
 #ifndef NEWTONGRID_VTIWRITER_HPP
 #define NEWTONGRID_VTIWRITER_HPP
 
-#include "Grid.hpp"
-#include "FieldData.hpp"
+
+#include "../data/Grid.hpp"       
+#include "../data/FieldData.hpp"     
 #include <fstream>
 #include <string>
 #include <sstream>
